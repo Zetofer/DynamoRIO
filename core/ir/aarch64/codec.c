@@ -9561,6 +9561,114 @@ encode_opnds_tbz(byte *pc, instr_t *instr, uint enc, decode_info_t *di)
     return ENCFAIL;
 }
 
+static inline uint
+decode_load_store_category(uint enc)
+{
+    uint res = DR_INSTR_CATEGORY_OTHER;
+    /* Calculation of category is based on C4.1.67 of ARM V8 Architecture reference manual
+       https://developer.arm.com/documentation/ddi0487/
+       The encoding is:
+
+       31    28      26  24  23 22 21                      11 10                    0
+      | x x x x | x | x x x | x x | x x x x x x | x x x x | x x | x x x x x x x x x x |
+      -----------   ----  -----   ---------------         -------
+          op0        op1   op2          op3                 op4
+                            -------
+                              opc
+
+                                                  op0
+                                                   |
+                      xx11                        xx00                               xx01
+        Load     op4 x1 and op3 1xxxxx           opc x1                   op2 0x or (op3 0xxxxx and opc not 0) or (op3 1xxxxx and op4 0 and opc not 0)
+        Store    opc 0 or (op1 1 and opc 10)     opc x0                   (op3 0xxxxx and opc 0) or (opc 0 or op4 not 0) 
+    */
+    uint op0 = BITS(enc, 31, 28);
+    uint opc = BITS(enc, 23, 22);
+    if((op0 & 0x3) == 0x3) { /* xx11 */
+        if(BITS(enc, 10, 10) == 1 && BITS(enc, 21, 21) == 1) {
+            res = DR_INSTR_CATEGORY_LOAD;
+        } else { /* Should check bits 22, 23, 26 */
+            if(opc == 0 || (opc == 0x2 && BITS(enc, 26, 26) == 1)) {
+                res = DR_INSTR_CATEGORY_STORE;
+            } else {
+                res = DR_INSTR_CATEGORY_LOAD;
+            }
+        }
+    } else if((op0 & 0x3) == 0) { /* xx00 */
+        res = (BITS(enc, 22, 22) == 0) ? DR_INSTR_CATEGORY_STORE : DR_INSTR_CATEGORY_LOAD;
+        if((op0 & 0xc) == 0 && BITS(enc, 26, 26) == 1) {
+            res |= DR_INSTR_CATEGORY_SIMD;
+        }
+    } else { /* xx01 */
+        if(BITS(enc, 24, 24) == 0) {
+            res = DR_INSTR_CATEGORY_LOAD;
+        } else {
+            if(BITS(enc, 21, 21) == 0) {
+                res = (opc == 0) ? DR_INSTR_CATEGORY_STORE : DR_INSTR_CATEGORY_LOAD;
+            } else {
+                if((opc == 0x1 || opc == 0x3) && BITS(enc, 11, 10) == 0) {
+                    res = DR_INSTR_CATEGORY_LOAD;
+                } else {
+                    res = DR_INSTR_CATEGORY_STORE;
+                }
+            }
+        }
+    }
+    return res;
+}
+
+static inline bool
+decode_category(uint enc, instr_t *instr)
+{
+    int cat = DR_INSTR_CATEGORY_OTHER;
+    /* Calculation of category is based on C4.1 of ARM V8 Architecture reference manual
+       https://developer.arm.com/documentation/ddi0487/
+       The encoding is:
+
+       31  30 29 28      25 24                                             0
+      | x | x x |    op1   | x x x x x x x x x x x x x x x x x x x x x x x x |
+    */ 
+    uint op1 = BITS(enc, 28, 25);
+    if((BITS(enc, 31, 31) == 1 && op1 == 0) || op1 == 0x2) { /* SME || SVE */
+        cat = DR_INSTR_CATEGORY_SIMD;
+    } else {
+        /*                           xxxx
+                                       |
+                          x0xx                      x1xx
+                            |                         |
+                    100x        101x         x1x0           x1x1       
+                    Int        Branches     Load/Store        |         
+                                                       x101        x111
+                                                        Int      Scalar Floating-Point and Advances SIMD
+        */                                                    
+        if((op1 & 0x4) == 0) { /* op1 is x0xx */
+            if((op1 & 0x2) == 0) { /* op1 is 100x, Data processing Immediate */
+                cat = DR_INSTR_CATEGORY_MATH_INT;
+            } else { /* op1 is 101x, Branches */
+                cat = DR_INSTR_CATEGORY_BRANCH;
+            }
+        } else { /* op1 is x1xx */
+            uint op0 = BITS(enc, 31, 28);
+            if((op1 & 0x1) == 0) { /* op1 is x1x0, LOAD/STORE */
+                cat = decode_load_store_category(enc);
+            } else { /* op1 is x1x1, Data processing */
+                if((op1 & 0x2) == 0) { /* op1 is x101 */
+                    cat = DR_INSTR_CATEGORY_MATH_INT;
+                } else { /* op1 is x111, Scalar Floating-Point and Advances SIMD */
+                    if((op0 & 0x9) == 0 || (op0 & 0x5) == 0x5) { /* op0 is 0xx0 || op0 is 01x1 */
+                        cat = DR_INSTR_CATEGORY_SIMD;
+                    } else {
+                        cat = DR_INSTR_CATEGORY_MATH_FLOAT;
+                    }
+                }
+            }
+        }
+    }
+
+    instr_set_category(instr, cat);
+    return true;
+}
+
 /******************************************************************************/
 
 /* Include automatically generated decoder and encoder files. Decode and encode
@@ -9639,6 +9747,8 @@ decode_common(dcontext_t *dcontext, byte *pc, byte *orig_pc, instr_t *instr)
             instr->dsts[3] = opnd_create_reg(DR_REG_X0 + (enc >> 16 & 31));
         }
     }
+
+    decode_category(enc, instr);
 
     /* XXX i#2374: This determination of flag usage should be separate from the
      * decoding of operands.
