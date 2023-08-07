@@ -2485,7 +2485,6 @@ decode_opcode(dcontext_t *dcontext, byte *pc, instr_t *instr)
     sz = decode_sizeof_ex(dcontext, pc, NULL, &rip_rel_pos);
     IF_X64(instr_set_x86_mode(instr, get_x86_mode(dcontext)));
     instr_set_opcode(instr, info->type);
-    decode_category(instr, info->type);
     /* read_instruction sets opcode to OP_INVALID for illegal instr.
      * decode_sizeof will return 0 for _some_ illegal instrs, so we
      * check it first since it's faster than instr_valid, but we have to
@@ -2549,6 +2548,7 @@ decode_common(dcontext_t *dcontext, byte *pc, byte *orig_pc, instr_t *instr)
                                         decode operands too */
                                _IF_DEBUG(!TEST(INSTR_IGNORE_INVALID, instr->flags)));
     instr_set_opcode(instr, info->type);
+    decode_category(instr, info->type);
     IF_X64(instr_set_x86_mode(instr, di.x86_mode));
     /* failure up to this point handled fine -- we set opcode to OP_INVALID */
     if (next_pc == NULL) {
