@@ -560,6 +560,7 @@ extern const instr_info_t xop_prefix_extensions[][2];
 extern const instr_info_t xop_extensions[];
 extern const instr_info_t evex_prefix_extensions[][2];
 extern const instr_info_t evex_Wb_extensions[][4];
+extern const uint category_by_opcode[];
 
 /* table that translates opcode enums into pointers into decoding tables */
 extern const instr_info_t *const op_instr[];

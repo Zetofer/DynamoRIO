@@ -2410,6 +2410,13 @@ decode_get_tuple_type_input_size(const instr_info_t *info, decode_info_t *di)
         di->input_size = OPSZ_NA;
 }
 
+void
+decode_category(instr_t *instr, int opcode)
+{
+    int cat = category_by_opcode[opcode];
+    instr_set_category(instr, cat);
+}
+
 /****************************************************************************
  * Exported routines
  */
@@ -2478,6 +2485,7 @@ decode_opcode(dcontext_t *dcontext, byte *pc, instr_t *instr)
     sz = decode_sizeof_ex(dcontext, pc, NULL, &rip_rel_pos);
     IF_X64(instr_set_x86_mode(instr, get_x86_mode(dcontext)));
     instr_set_opcode(instr, info->type);
+    decode_category(instr, info->type);
     /* read_instruction sets opcode to OP_INVALID for illegal instr.
      * decode_sizeof will return 0 for _some_ illegal instrs, so we
      * check it first since it's faster than instr_valid, but we have to
