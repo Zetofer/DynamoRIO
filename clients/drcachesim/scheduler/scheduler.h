@@ -192,8 +192,9 @@ public:
          * though the input were constructed by concatenating these ranges together.  A
          * #TRACE_MARKER_TYPE_WINDOW_ID marker is inserted between
          * ranges (with a value equal to the range ordinal) to notify the client of the
-         * discontinuity (but not before the first range).  These ranges must be
-         * non-overlapping and in increasing order.
+         * discontinuity (but not before the first range), with a
+         * #dynamorio::drmemtrace::TRACE_TYPE_THREAD_EXIT record inserted after the final
+         * range.  These ranges must be non-overlapping and in increasing order.
          */
         std::vector<range_t> regions_of_interest;
     };
@@ -626,6 +627,18 @@ public:
             return scheduler_->get_input_ordinal(ordinal_);
         }
         /**
+         * Returns the ordinal for the workload which is the source of the current input
+         * stream feeding this output stream.  This workload ordinal is the index into the
+         * vector of type #dynamorio::drmemtrace::scheduler_tmpl_t::input_workload_t
+         * passed to init().  Returns -1 if there is no current input for this output
+         * stream.
+         */
+        virtual int
+        get_input_workload_ordinal()
+        {
+            return scheduler_->get_workload_ordinal(ordinal_);
+        }
+        /**
          * Returns the value of the most recently seen #TRACE_MARKER_TYPE_TIMESTAMP
          * marker.
          */
@@ -850,8 +863,8 @@ protected:
         bool order_by_timestamp = false;
         // Global ready queue counter used to provide FIFO for same-priority inputs.
         uint64_t queue_counter = 0;
-        // Used to ensure we make progress past a blocking syscall.
-        bool processed_blocking_syscall = false;
+        // Used to switch on the insruction *after* a blocking syscall.
+        bool processing_blocking_syscall = false;
     };
 
     // Format for recording a schedule to disk.  A separate sequence of these records
@@ -896,7 +909,7 @@ protected:
         } END_PACKED_STRUCTURE key;
         // Input stream ordinal of starting point.
         uint64_t start_instruction = 0;
-        // Input stream ordinal, inclusive.  Max numeric value means continue until EOF.
+        // Input stream ordinal, exclusive.  Max numeric value means continue until EOF.
         uint64_t stop_instruction = 0;
         // Timestamp in microseconds to keep context switches ordered.
         // XXX: To add more fine-grained ordering we could emit multiple entries
@@ -1067,6 +1080,11 @@ protected:
     // the 'output_ordinal'-th output stream.
     input_ordinal_t
     get_input_ordinal(output_ordinal_t output);
+
+    // Returns the workload ordinal value for the current input stream scheduled on
+    // the 'output_ordinal'-th output stream.
+    int
+    get_workload_ordinal(output_ordinal_t output);
 
     // Returns whether the current record for the current input stream scheduled on
     // the 'output_ordinal'-th output stream is synthetic.
